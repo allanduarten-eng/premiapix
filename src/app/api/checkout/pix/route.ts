@@ -31,6 +31,10 @@ function normalizeOrderId(value: unknown) {
   return null;
 }
 
+function moneyString(value: number | string) {
+  return Number(value).toFixed(2);
+}
+
 export async function POST(request: Request) {
   let reservedOrderId: string | null = null;
 
@@ -163,7 +167,8 @@ export async function POST(request: Request) {
       .eq("id", order.raffle_id)
       .maybeSingle();
 
-    const paymentResponse = await fetch("https://api.mercadopago.com/v1/payments", {
+    const totalAmount = moneyString(order.total);
+    const paymentResponse = await fetch("https://api.mercadopago.com/v1/orders", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${process.env.MERCADO_PAGO_ACCESS_TOKEN}`,
@@ -171,15 +176,25 @@ export async function POST(request: Request) {
         "X-Idempotency-Key": String(order.id)
       },
       body: JSON.stringify({
-        transaction_amount: Number(order.total),
-        description: `Cotas da campanha ${raffle?.title ?? order.raffle_id}`,
-        payment_method_id: "pix",
+        type: "online",
+        external_reference: String(order.id),
+        total_amount: totalAmount,
         payer: {
           email: payerEmail,
           first_name: buyerName.split(" ")[0]
         },
-        external_reference: String(order.id),
-        notification_url: process.env.MERCADO_PAGO_WEBHOOK_URL || undefined
+        transactions: {
+          payments: [
+            {
+              amount: totalAmount,
+              description: `Cotas da campanha ${raffle?.title ?? order.raffle_id}`,
+              payment_method: {
+                id: "pix",
+                type: "bank_transfer"
+              }
+            }
+          ]
+        }
       })
     });
 
@@ -200,29 +215,50 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          error: paymentData.message || "Erro ao criar pagamento no Mercado Pago."
+          error:
+            paymentData.message ||
+            paymentData.errors?.[0]?.message ||
+            "Erro ao criar pagamento no Mercado Pago."
         },
         { status: 502 }
       );
     }
 
-    const transactionData = paymentData.point_of_interaction?.transaction_data;
+    const payment = paymentData.transactions?.payments?.[0];
+    const paymentMethod = payment?.payment_method;
+    const isPaid =
+      paymentData.status === "processed" ||
+      (payment?.status === "processed" && payment?.status_detail === "accredited");
 
     await admin
       .from("orders")
       .update({
-        mp_payment_id: String(paymentData.id),
-        pix_qr_code: transactionData?.qr_code ?? null,
-        pix_qr_code_base64: transactionData?.qr_code_base64 ?? null
+        status: isPaid ? "paid" : "pending",
+        mp_order_id: String(paymentData.id),
+        mp_payment_id: payment?.id ? String(payment.id) : null,
+        pix_qr_code: paymentMethod?.qr_code ?? null,
+        pix_qr_code_base64: paymentMethod?.qr_code_base64 ?? null
       })
       .eq("id", order.id);
+
+    if (isPaid) {
+      await admin
+        .from("raffle_numbers")
+        .update({
+          status: "paid",
+          reserved_until: null,
+          paid_at: new Date().toISOString()
+        })
+        .eq("order_id", order.id);
+    }
+
     reservedOrderId = null;
 
     return NextResponse.json({
       success: true,
       orderId: order.id,
-      copiaECola: transactionData?.qr_code,
-      qrCodeBase64: transactionData?.qr_code_base64
+      copiaECola: paymentMethod?.qr_code,
+      qrCodeBase64: paymentMethod?.qr_code_base64
     });
   } catch (error) {
     if (reservedOrderId) {
