@@ -1,0 +1,12 @@
+.next
+node_modules
+.env*.local
+dist
+coverage
+*.tsbuildinfo
+
+# Local Netlify folder
+.netlify
+
+# Local Supabase CLI state
+supabase/.temp
