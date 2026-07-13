@@ -161,12 +161,6 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data: raffle } = await admin
-      .from("raffles")
-      .select("title")
-      .eq("id", order.raffle_id)
-      .maybeSingle();
-
     const totalAmount = moneyString(order.total);
     const paymentResponse = await fetch("https://api.mercadopago.com/v1/orders", {
       method: "POST",
@@ -187,7 +181,6 @@ export async function POST(request: Request) {
           payments: [
             {
               amount: totalAmount,
-              description: `Cotas da campanha ${raffle?.title ?? order.raffle_id}`,
               payment_method: {
                 id: "pix",
                 type: "bank_transfer"
