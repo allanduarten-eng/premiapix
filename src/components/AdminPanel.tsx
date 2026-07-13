@@ -34,6 +34,10 @@ type AdminForm = {
   status: "draft" | "open";
 };
 
+const maxUploadImageSize = 5 * 1024 * 1024;
+const imageCompressThreshold = 1.2 * 1024 * 1024;
+const imageMaxSide = 1600;
+
 const initialForm: AdminForm = {
   title: `${brand.name} - Campanha principal`,
   prizeTitle: "",
@@ -57,6 +61,55 @@ type DrawModalState = {
 function wait(ms: number) {
   return new Promise((resolve) => {
     window.setTimeout(resolve, ms);
+  });
+}
+
+function formatFileSize(bytes: number) {
+  if (bytes < 1024 * 1024) {
+    return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  }
+
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function fileNameWithoutExtension(name: string) {
+  return name.replace(/\.[^/.]+$/, "") || "campanha";
+}
+
+async function imageToWebp(file: File) {
+  if (file.size < imageCompressThreshold || file.type === "image/gif") {
+    return file;
+  }
+
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, imageMaxSide / Math.max(bitmap.width, bitmap.height));
+  const width = Math.max(1, Math.round(bitmap.width * scale));
+  const height = Math.max(1, Math.round(bitmap.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    bitmap.close();
+    return file;
+  }
+
+  context.drawImage(bitmap, 0, 0, width, height);
+  bitmap.close();
+
+  const blob = await new Promise<Blob | null>((resolve) => {
+    canvas.toBlob(resolve, "image/webp", 0.84);
+  });
+
+  if (!blob || blob.size >= file.size) {
+    return file;
+  }
+
+  return new File([blob], `${fileNameWithoutExtension(file.name)}.webp`, {
+    type: "image/webp",
+    lastModified: Date.now()
   });
 }
 
@@ -506,23 +559,58 @@ export function AdminPanel() {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
-  function updateImageFile(file: File | null) {
-    setImageFile(file);
+  async function updateImageFile(file: File | null) {
+    setError("");
+    setMessage("");
 
     if (!file) {
+      setImageFile(null);
       setImagePreview("");
       return;
     }
 
-    if (file) {
-      updateField("imageUrl", "");
+    if (!file.type.startsWith("image/")) {
+      setImageFile(null);
+      setImagePreview("");
+      setError("O arquivo precisa ser uma imagem.");
+      return;
+    }
+
+    let preparedFile = file;
+
+    try {
+      preparedFile = await imageToWebp(file);
+    } catch {
+      preparedFile = file;
+    }
+
+    if (preparedFile.size > maxUploadImageSize) {
+      setImageFile(null);
+      setImagePreview("");
+      setError(
+        `A imagem esta muito pesada (${formatFileSize(
+          preparedFile.size
+        )}). Use uma imagem com ate 5 MB.`
+      );
+      return;
+    }
+
+    setImageFile(preparedFile);
+    updateField("imageUrl", "");
+
+    if (preparedFile.size < file.size) {
+      setMessage(
+        `Imagem otimizada de ${formatFileSize(file.size)} para ${formatFileSize(
+          preparedFile.size
+        )}.`
+      );
     }
 
     const reader = new FileReader();
     reader.onload = () => {
       setImagePreview(String(reader.result ?? ""));
     };
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(preparedFile);
   }
 
   const drawModalWhatsappLink = whatsappHref(drawModal?.result?.buyerWhatsapp ?? null);
@@ -672,9 +760,9 @@ export function AdminPanel() {
                   <div className="image-upload-grid">
                     <label className="image-upload-drop" htmlFor="imageFile">
                       <ImageUp size={22} />
-                      <span>Enviar do dispositivo</span>
+                      <span>Enviar imagem</span>
                       <input
-                        accept="image/*"
+                        accept="image/jpeg,image/png,image/webp,image/gif"
                         id="imageFile"
                         onChange={(event) => updateImageFile(event.target.files?.[0] ?? null)}
                         type="file"
@@ -696,6 +784,9 @@ export function AdminPanel() {
                     <div className="image-preview">
                       <img alt="Previa da imagem da campanha" src={imagePreview || form.imageUrl} />
                     </div>
+                  ) : null}
+                  {imageFile ? (
+                    <p className="muted">Imagem pronta para envio: {formatFileSize(imageFile.size)}</p>
                   ) : null}
                 </div>
 
