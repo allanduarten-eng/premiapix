@@ -1,14 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import {
   BadgeCheck,
   CalendarDays,
   CheckCircle2,
   Copy,
   Gift,
-  KeyRound,
   Mail,
   Phone,
   QrCode,
@@ -432,10 +430,6 @@ export function RaffleShell() {
             <RefreshCw size={17} />
             Atualizar
           </button>
-          <Link className="button secondary" href="/admin">
-            <KeyRound size={17} />
-            Admin
-          </Link>
         </div>
       </header>
 
@@ -515,8 +509,8 @@ export function RaffleShell() {
               <div className="empty-state">
                 <Gift size={30} />
                 <div>
-                  <strong>Nenhuma campanha publicada.</strong>
-                  <p className="muted">Crie a primeira campanha no painel admin.</p>
+                  <strong>Nenhuma campanha disponivel.</strong>
+                  <p className="muted">Volte em breve para participar das proximas campanhas.</p>
                 </div>
               </div>
             ) : (
