@@ -25,8 +25,41 @@ type PaidNumberRow = {
   orders: OrderSummary | OrderSummary[] | null;
 };
 
+const pageSize = 1000;
+
 function getOrder(row: PaidNumberRow) {
   return Array.isArray(row.orders) ? row.orders[0] : row.orders;
+}
+
+async function fetchPaidNumberRows(admin: ReturnType<typeof createSupabaseAdmin>, raffleId: string) {
+  const rows: PaidNumberRow[] = [];
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await admin
+      .from("raffle_numbers")
+      .select(
+        "id,number,order_id,paid_at,orders(id,buyer_name,buyer_whatsapp,buyer_contact,buyer_email)"
+      )
+      .eq("raffle_id", raffleId)
+      .eq("status", "paid")
+      .order("number", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error) {
+      throw error;
+    }
+
+    rows.push(...((data ?? []) as PaidNumberRow[]));
+
+    if (!data || data.length < pageSize) {
+      break;
+    }
+
+    from += pageSize;
+  }
+
+  return rows;
 }
 
 export async function GET(request: Request, context: RouteContext) {
@@ -41,20 +74,8 @@ export async function GET(request: Request, context: RouteContext) {
     const admin = createSupabaseAdmin();
     await syncPendingOrdersForRaffle(admin, id);
 
-    const { data, error } = await admin
-      .from("raffle_numbers")
-      .select(
-        "id,number,order_id,paid_at,orders(id,buyer_name,buyer_whatsapp,buyer_contact,buyer_email)"
-      )
-      .eq("raffle_id", id)
-      .eq("status", "paid")
-      .order("number", { ascending: true });
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    const numbers = ((data ?? []) as PaidNumberRow[]).map((row) => {
+    const paidRows = await fetchPaidNumberRows(admin, id);
+    const numbers = paidRows.map((row) => {
       const order = getOrder(row);
 
       return {

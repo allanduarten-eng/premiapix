@@ -36,6 +36,7 @@ const statusLabel: Record<RaffleStatus, string> = {
   closed: "Fechada",
   drawn: "Sorteada"
 };
+const numberFetchPageSize = 1000;
 
 function formatDate(value: string | null) {
   if (!value) {
@@ -238,35 +239,49 @@ export function RaffleShell() {
   }
 
   async function fetchNumbers(raffleId: string) {
-    const { data, error } = await supabase
-      .from("raffle_numbers")
-      .select("id,raffle_id,number,status,reserved_until")
-      .eq("raffle_id", raffleId)
-      .order("number");
+    const rows: RaffleNumber[] = [];
+    let from = 0;
 
-    if (!error && data) {
-      const now = Date.now();
-      const mapped = (data as RaffleNumber[]).map((item) => {
-        const reservationExpired =
-          item.status === "reserved" &&
-          item.reserved_until &&
-          Date.parse(item.reserved_until) <= now;
+    while (true) {
+      const { data, error } = await supabase
+        .from("raffle_numbers")
+        .select("id,raffle_id,number,status,reserved_until")
+        .eq("raffle_id", raffleId)
+        .order("number")
+        .range(from, from + numberFetchPageSize - 1);
 
-        if (!reservationExpired) {
-          return item;
-        }
+      if (error || !data) {
+        return [];
+      }
 
-        return {
-          ...item,
-          status: "available" as const,
-          reserved_until: null
-        };
-      });
-      setNumbers(mapped);
-      return mapped;
+      rows.push(...((data ?? []) as RaffleNumber[]));
+
+      if (data.length < numberFetchPageSize) {
+        break;
+      }
+
+      from += numberFetchPageSize;
     }
 
-    return [];
+    const now = Date.now();
+    const mapped = rows.map((item) => {
+      const reservationExpired =
+        item.status === "reserved" &&
+        item.reserved_until &&
+        Date.parse(item.reserved_until) <= now;
+
+      if (!reservationExpired) {
+        return item;
+      }
+
+      return {
+        ...item,
+        status: "available" as const,
+        reserved_until: null
+      };
+    });
+    setNumbers(mapped);
+    return mapped;
   }
 
   function toggleNumber(number: RaffleNumber) {
