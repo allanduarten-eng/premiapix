@@ -32,7 +32,7 @@ Como o PowerShell deste computador bloqueia `npm.ps1`, use `npm.cmd` e
 `npx.cmd`.
 
 ```powershell
-cd "C:\Users\DELL\Documents\New project\premiapix-allan"
+cd "C:\Users\DELL\Documents\New project\premiapix"
 npx.cmd supabase login
 npx.cmd supabase link --project-ref SEU_PROJECT_REF
 npx.cmd supabase db push

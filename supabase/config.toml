@@ -1,4 +1,4 @@
-project_id = "premiapix-allan"
+project_id = "premiapix"
 
 [api]
 enabled = true
