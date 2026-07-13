@@ -36,10 +36,6 @@ function moneyString(value: number | string) {
   return Number(value).toFixed(2);
 }
 
-function tenMinutePixExpiration() {
-  return new Date(Date.now() + 10 * 60 * 1000).toISOString();
-}
-
 export async function POST(request: Request) {
   let reservedOrderId: string | null = null;
 
@@ -169,7 +165,6 @@ export async function POST(request: Request) {
     }
 
     const totalAmount = moneyString(order.total);
-    const pixExpiresAt = tenMinutePixExpiration();
     const paymentResponse = await fetch("https://api.mercadopago.com/v1/orders", {
       method: "POST",
       headers: {
@@ -189,8 +184,6 @@ export async function POST(request: Request) {
           payments: [
             {
               amount: totalAmount,
-              expiration_time: "PT10M",
-              date_of_expiration: pixExpiresAt,
               payment_method: {
                 id: "pix",
                 type: "bank_transfer"
