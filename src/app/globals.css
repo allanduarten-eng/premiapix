@@ -888,6 +888,108 @@ img {
   background: #f1faf4;
 }
 
+.draw-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(10, 20, 32, 0.58);
+  backdrop-filter: blur(6px);
+}
+
+.draw-modal {
+  display: grid;
+  width: min(520px, 100%);
+  gap: 16px;
+  padding: 22px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 28px 70px rgba(5, 12, 22, 0.28);
+}
+
+.draw-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.draw-modal-head h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  line-height: 1.28;
+  letter-spacing: 0;
+}
+
+.draw-number {
+  display: grid;
+  min-height: 160px;
+  place-items: center;
+  color: #fff;
+  background: linear-gradient(135deg, #1d5fd2 0%, #107c5d 58%, #9a6a18 100%);
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  border-radius: 8px;
+  box-shadow: inset 0 0 30px rgba(255, 255, 255, 0.16);
+  font-size: clamp(3rem, 12vw, 5.6rem);
+  font-variant-numeric: tabular-nums;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.draw-number.rolling {
+  animation: drawPulse 520ms ease-in-out infinite alternate;
+}
+
+.draw-number.winner {
+  background: linear-gradient(135deg, var(--green) 0%, #155e75 100%);
+  animation: winnerPop 620ms ease-out;
+}
+
+.draw-result {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  background: #f1faf4;
+  border: 1px solid #cfe8d8;
+  border-radius: 6px;
+}
+
+.draw-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+@keyframes drawPulse {
+  from {
+    transform: scale(0.98);
+    filter: saturate(0.92);
+  }
+
+  to {
+    transform: scale(1.02);
+    filter: saturate(1.16);
+  }
+}
+
+@keyframes winnerPop {
+  0% {
+    transform: scale(0.9);
+  }
+
+  65% {
+    transform: scale(1.04);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
 .paid-number-list {
   display: grid;
   gap: 8px;
@@ -1020,12 +1122,19 @@ img {
     grid-template-columns: 1fr;
   }
 
+  .draw-modal-head,
+  .draw-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
   .admin-actions {
     justify-content: stretch;
   }
 
   .admin-actions .button,
   .winner-box .button,
+  .draw-actions .button,
   .paid-number-row .button {
     width: 100%;
   }

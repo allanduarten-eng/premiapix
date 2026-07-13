@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { brand } from "@/lib/brand";
+import { syncPendingOrdersForRaffle } from "@/lib/mercadoPagoOrders";
 import {
   createSupabaseAdmin,
   createSupabaseForToken,
@@ -33,6 +34,10 @@ function normalizeOrderId(value: unknown) {
 
 function moneyString(value: number | string) {
   return Number(value).toFixed(2);
+}
+
+function tenMinutePixExpiration() {
+  return new Date(Date.now() + 10 * 60 * 1000).toISOString();
 }
 
 export async function POST(request: Request) {
@@ -110,6 +115,8 @@ export async function POST(request: Request) {
       brand.defaultPayerEmail;
 
     const admin = createSupabaseAdmin();
+    await syncPendingOrdersForRaffle(admin, body.rifaId);
+
     const { data: rawOrderId, error: reserveError } = await admin.rpc(
       "create_guest_pending_order",
       {
@@ -162,6 +169,7 @@ export async function POST(request: Request) {
     }
 
     const totalAmount = moneyString(order.total);
+    const pixExpiresAt = tenMinutePixExpiration();
     const paymentResponse = await fetch("https://api.mercadopago.com/v1/orders", {
       method: "POST",
       headers: {
@@ -181,6 +189,8 @@ export async function POST(request: Request) {
           payments: [
             {
               amount: totalAmount,
+              expiration_time: "PT10M",
+              date_of_expiration: pixExpiresAt,
               payment_method: {
                 id: "pix",
                 type: "bank_transfer"

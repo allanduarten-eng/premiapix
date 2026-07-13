@@ -61,6 +61,14 @@ function statusClass(status: RaffleStatus) {
   return "amber";
 }
 
+type CheckoutStatus = {
+  orderId: string;
+  status: string;
+  paid: boolean;
+  expired: boolean;
+  error?: string;
+};
+
 export function RaffleShell() {
   const [raffles, setRaffles] = useState<Raffle[]>([]);
   const [activeRaffleId, setActiveRaffleId] = useState<string | null>(null);
@@ -81,6 +89,7 @@ export function RaffleShell() {
     () => raffles.find((raffle) => raffle.id === activeRaffleId) ?? null,
     [activeRaffleId, raffles]
   );
+  const activeRafflePollingId = activeRaffle?.id ?? null;
 
   const activeDrawDate = formatDate(activeRaffle?.draw_at ?? null);
   const paidCount = numbers.filter((number) => number.status === "paid").length;
@@ -107,6 +116,7 @@ export function RaffleShell() {
     }
 
     fetchNumbers(activeRaffleId);
+    const refreshTimer = window.setInterval(() => fetchNumbers(activeRaffleId), 30000);
 
     const channel = supabase
       .channel(`raffle_numbers:${activeRaffleId}`)
@@ -123,9 +133,85 @@ export function RaffleShell() {
       .subscribe();
 
     return () => {
+      window.clearInterval(refreshTimer);
       supabase.removeChannel(channel);
     };
   }, [activeRaffleId]);
+
+  useEffect(() => {
+    if (!checkout?.success || !checkout.orderId || !activeRafflePollingId) {
+      return;
+    }
+
+    let cancelled = false;
+    let attempts = 0;
+    let timer: number | null = null;
+    const checkoutOrderId = checkout.orderId;
+    const checkoutRaffleId = activeRafflePollingId;
+
+    async function refreshCheckoutStatus() {
+      attempts += 1;
+
+      try {
+        const response = await fetch("/api/checkout/status", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ orderId: checkoutOrderId })
+        });
+        const payload = (await response.json()) as CheckoutStatus;
+
+        if (cancelled || !response.ok) {
+          return;
+        }
+
+        if (payload.paid) {
+          setStatusMessage("Pagamento confirmado. Seus numeros ja ficaram marcados como pagos.");
+          setCheckout(null);
+          setSelectedNumbers([]);
+          await fetchNumbers(checkoutRaffleId);
+          await fetchRaffles();
+
+          if (timer) {
+            window.clearInterval(timer);
+          }
+          return;
+        }
+
+        if (payload.expired) {
+          setStatusMessage("Reserva expirada. Esses numeros voltaram a ficar disponiveis.");
+          setCheckout(null);
+          setSelectedNumbers([]);
+          await fetchNumbers(checkoutRaffleId);
+
+          if (timer) {
+            window.clearInterval(timer);
+          }
+          return;
+        }
+
+        if (attempts >= 120 && timer) {
+          window.clearInterval(timer);
+        }
+      } catch {
+        if (!cancelled) {
+          setStatusMessage("Aguardando confirmacao do Mercado Pago.");
+        }
+      }
+    }
+
+    refreshCheckoutStatus();
+    timer = window.setInterval(refreshCheckoutStatus, 5000);
+
+    return () => {
+      cancelled = true;
+
+      if (timer) {
+        window.clearInterval(timer);
+      }
+    };
+  }, [activeRafflePollingId, checkout?.orderId, checkout?.success]);
 
   async function fetchRaffles() {
     setLoading(true);
@@ -159,7 +245,23 @@ export function RaffleShell() {
       .order("number");
 
     if (!error && data) {
-      const mapped = data as RaffleNumber[];
+      const now = Date.now();
+      const mapped = (data as RaffleNumber[]).map((item) => {
+        const reservationExpired =
+          item.status === "reserved" &&
+          item.reserved_until &&
+          Date.parse(item.reserved_until) <= now;
+
+        if (!reservationExpired) {
+          return item;
+        }
+
+        return {
+          ...item,
+          status: "available" as const,
+          reserved_until: null
+        };
+      });
       setNumbers(mapped);
       return mapped;
     }
@@ -277,7 +379,9 @@ export function RaffleShell() {
       return;
     }
 
-    setStatusMessage("PIX gerado. Aguardando confirmacao do Mercado Pago.");
+    setStatusMessage(
+      "PIX gerado. A reserva vale por 10 minutos e o site confere o pagamento automaticamente."
+    );
     await fetchNumbers(activeRaffle.id);
   }
 
@@ -623,18 +727,22 @@ export function RaffleShell() {
 
             <button
               className="button"
-              disabled={checkoutLoading || activeRaffle?.status !== "open"}
+              disabled={checkoutLoading || activeRaffle?.status !== "open" || Boolean(checkout?.success)}
               type="button"
               onClick={createPixCheckout}
             >
               <QrCode size={18} />
-              {checkoutLoading ? "Gerando PIX..." : "Gerar PIX"}
+              {checkoutLoading
+                ? "Gerando PIX..."
+                : checkout?.success
+                  ? "Aguardando pagamento"
+                  : "Gerar PIX"}
             </button>
 
             <div className="checkout-foot">
               <ShieldCheck size={16} />
-              Processamento via Mercado Pago. A confirmacao atualiza os numeros
-              automaticamente.
+              Reserva de 10 minutos apos gerar o PIX. A confirmacao atualiza os
+              numeros automaticamente.
             </div>
 
             {statusMessage ? (
@@ -667,6 +775,7 @@ export function RaffleShell() {
                   <CheckCircle2 size={15} />
                   Pedido criado
                 </span>
+                <span className="pill amber">Reserva ativa por 10 minutos</span>
               </div>
             ) : null}
           </section>

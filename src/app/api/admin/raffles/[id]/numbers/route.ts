@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/adminAuth";
+import { syncPendingOrdersForRaffle } from "@/lib/mercadoPagoOrders";
 import { createSupabaseAdmin } from "@/lib/supabaseServer";
 
 type RouteContext = {
@@ -38,6 +39,8 @@ export async function GET(request: Request, context: RouteContext) {
 
     const { id } = await context.params;
     const admin = createSupabaseAdmin();
+    await syncPendingOrdersForRaffle(admin, id);
+
     const { data, error } = await admin
       .from("raffle_numbers")
       .select(

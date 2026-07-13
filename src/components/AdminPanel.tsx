@@ -13,6 +13,7 @@ import {
   PlusCircle,
   RefreshCw,
   ShieldCheck,
+  Sparkles,
   TicketCheck,
   Trophy,
   Trash2
@@ -43,6 +44,21 @@ const initialForm: AdminForm = {
   drawAt: "",
   status: "open"
 };
+
+type DrawModalState = {
+  raffleTitle: string;
+  phase: "rolling" | "winner" | "error";
+  displayNumber: number | null;
+  candidateNumbers: number[];
+  result?: DrawResult;
+  error?: string;
+};
+
+function wait(ms: number) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
 
 function whatsappHref(value: string | null) {
   if (!value) {
@@ -81,6 +97,7 @@ export function AdminPanel() {
     Record<string, PaidRaffleNumber[]>
   >({});
   const [drawResults, setDrawResults] = useState<Record<string, DrawResult>>({});
+  const [drawModal, setDrawModal] = useState<DrawModalState | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -193,45 +210,131 @@ export function AdminPanel() {
       return;
     }
 
-    const confirmed = window.confirm(
-      `Sortear a campanha "${raffle.title}" entre os numeros pagos?`
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
     setError("");
     setMessage("");
     setDrawingRaffleId(raffle.id);
-
-    const response = await fetch(`/api/admin/raffles/${raffle.id}/draw`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${session.access_token}`
-      }
-    });
-
-    const payload = (await response.json()) as DrawResult & { error?: string };
-    setDrawingRaffleId(null);
-
-    if (!response.ok) {
-      setError(payload.error ?? "Nao foi possivel realizar o sorteio.");
-      return;
-    }
-
-    setDrawResults((current) => ({
-      ...current,
-      [raffle.id]: payload
-    }));
     setExpandedRaffleId(raffle.id);
-    setMessage(
-      payload.alreadyDrawn
-        ? `Essa campanha ja estava sorteada. Numero vencedor: ${payload.winningNumber}.`
-        : `Sorteio realizado. Numero vencedor: ${payload.winningNumber}.`
-    );
-    await fetchAdminRaffles();
-    await fetchPaidNumbers(raffle);
+
+    let animationTimer: number | null = null;
+
+    try {
+      const numbersResponse = await fetch(`/api/admin/raffles/${raffle.id}/numbers`, {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`
+        }
+      });
+      const numbersPayload = (await numbersResponse.json()) as {
+        error?: string;
+        numbers?: PaidRaffleNumber[];
+      };
+
+      if (!numbersResponse.ok) {
+        throw new Error(numbersPayload.error ?? "Nao foi possivel carregar compradores.");
+      }
+
+      const paidNumbers = numbersPayload.numbers ?? [];
+      const candidateNumbers = paidNumbers.map((item) => item.number);
+
+      setPaidNumbersByRaffle((current) => ({
+        ...current,
+        [raffle.id]: paidNumbers
+      }));
+
+      if (candidateNumbers.length === 0) {
+        const emptyMessage = "Ainda nao ha numeros pagos para sortear.";
+        setError(emptyMessage);
+        setDrawModal({
+          raffleTitle: raffle.title,
+          phase: "error",
+          displayNumber: null,
+          candidateNumbers,
+          error: emptyMessage
+        });
+        return;
+      }
+
+      const firstDisplay =
+        candidateNumbers[Math.floor(Math.random() * candidateNumbers.length)];
+
+      setDrawModal({
+        raffleTitle: raffle.title,
+        phase: "rolling",
+        displayNumber: firstDisplay,
+        candidateNumbers
+      });
+
+      animationTimer = window.setInterval(() => {
+        const nextDisplay =
+          candidateNumbers[Math.floor(Math.random() * candidateNumbers.length)];
+
+        setDrawModal((current) => {
+          if (!current || current.phase !== "rolling") {
+            return current;
+          }
+
+          return {
+            ...current,
+            displayNumber: nextDisplay
+          };
+        });
+      }, 85);
+
+      await wait(2600);
+
+      const response = await fetch(`/api/admin/raffles/${raffle.id}/draw`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`
+        }
+      });
+
+      const payload = (await response.json()) as DrawResult & { error?: string };
+
+      if (animationTimer) {
+        window.clearInterval(animationTimer);
+        animationTimer = null;
+      }
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Nao foi possivel realizar o sorteio.");
+      }
+
+      setDrawResults((current) => ({
+        ...current,
+        [raffle.id]: payload
+      }));
+      setDrawModal({
+        raffleTitle: raffle.title,
+        phase: "winner",
+        displayNumber: payload.winningNumber,
+        candidateNumbers,
+        result: payload
+      });
+      setMessage(
+        payload.alreadyDrawn
+          ? `Essa campanha ja estava sorteada. Numero vencedor: ${payload.winningNumber}.`
+          : `Sorteio realizado. Numero vencedor: ${payload.winningNumber}.`
+      );
+      await fetchAdminRaffles();
+    } catch (drawError) {
+      const drawMessage =
+        drawError instanceof Error ? drawError.message : "Nao foi possivel realizar o sorteio.";
+
+      setError(drawMessage);
+      setDrawModal({
+        raffleTitle: raffle.title,
+        phase: "error",
+        displayNumber: null,
+        candidateNumbers: [],
+        error: drawMessage
+      });
+    } finally {
+      if (animationTimer) {
+        window.clearInterval(animationTimer);
+      }
+
+      setDrawingRaffleId(null);
+    }
   }
 
   async function sendMagicLink() {
@@ -421,6 +524,8 @@ export function AdminPanel() {
     };
     reader.readAsDataURL(file);
   }
+
+  const drawModalWhatsappLink = whatsappHref(drawModal?.result?.buyerWhatsapp ?? null);
 
   return (
     <main className="app-shell">
@@ -713,7 +818,7 @@ export function AdminPanel() {
                           onClick={() => drawRaffle(raffle)}
                         >
                           <Trophy size={17} />
-                          Sortear
+                          {drawingRaffleId === raffle.id ? "Sorteando..." : "Sortear"}
                         </button>
                         <button
                           className="button danger"
@@ -802,6 +907,112 @@ export function AdminPanel() {
           </section>
         </div>
       </div>
+
+      {drawModal ? (
+        <div
+          aria-label="Sorteio interativo"
+          aria-modal="true"
+          className="draw-modal-backdrop"
+          role="dialog"
+        >
+          <div className="draw-modal">
+            <div className="draw-modal-head">
+              <div>
+                <p className="eyebrow">Sorteio</p>
+                <h2>{drawModal.raffleTitle}</h2>
+              </div>
+              <span
+                className={`pill ${
+                  drawModal.phase === "winner"
+                    ? "green"
+                    : drawModal.phase === "error"
+                      ? "red"
+                      : "blue"
+                }`}
+              >
+                {drawModal.phase === "rolling" ? (
+                  <Sparkles size={15} />
+                ) : (
+                  <Trophy size={15} />
+                )}
+                {drawModal.phase === "rolling"
+                  ? "Girando"
+                  : drawModal.phase === "winner"
+                    ? "Vencedor"
+                    : "Aviso"}
+              </span>
+            </div>
+
+            {drawModal.phase === "rolling" ? (
+              <>
+                <div className="draw-number rolling">
+                  {drawModal.displayNumber ?? "--"}
+                </div>
+                <p className="muted">
+                  Girando entre {drawModal.candidateNumbers.length} numeros pagos.
+                </p>
+              </>
+            ) : null}
+
+            {drawModal.phase === "winner" && drawModal.result ? (
+              <>
+                <div className="draw-number winner">{drawModal.result.winningNumber}</div>
+                <div className="draw-result">
+                  <span className="pill green">
+                    <Trophy size={15} />
+                    Numero vencedor
+                  </span>
+                  <strong>{drawModal.result.buyerName ?? "Comprador sem nome"}</strong>
+                  <span>{drawModal.result.buyerWhatsapp ?? "WhatsApp nao informado"}</span>
+                  <span className="muted">
+                    Contato:{" "}
+                    {drawModal.result.buyerContact ??
+                      drawModal.result.buyerEmail ??
+                      "nao informado"}
+                  </span>
+                </div>
+                <div className="draw-actions">
+                  <button
+                    className="button secondary"
+                    type="button"
+                    onClick={() => setDrawModal(null)}
+                  >
+                    Fechar
+                  </button>
+                  {drawModalWhatsappLink ? (
+                    <a
+                      className="button"
+                      href={drawModalWhatsappLink}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      <Phone size={17} />
+                      Abrir WhatsApp
+                    </a>
+                  ) : null}
+                </div>
+              </>
+            ) : null}
+
+            {drawModal.phase === "error" ? (
+              <>
+                <div className="message error">
+                  {drawModal.error ?? "Nao foi possivel realizar o sorteio."}
+                </div>
+                <div className="draw-actions">
+                  <button
+                    className="button secondary"
+                    type="button"
+                    onClick={() => setDrawModal(null)}
+                  >
+                    Fechar
+                  </button>
+                </div>
+              </>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

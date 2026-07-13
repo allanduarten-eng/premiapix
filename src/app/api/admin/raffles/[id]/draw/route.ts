@@ -1,6 +1,7 @@
 import { randomInt } from "crypto";
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/adminAuth";
+import { syncPendingOrdersForRaffle } from "@/lib/mercadoPagoOrders";
 import { createSupabaseAdmin } from "@/lib/supabaseServer";
 
 export const runtime = "nodejs";
@@ -68,6 +69,8 @@ export async function POST(request: Request, context: RouteContext) {
 
     const { id } = await context.params;
     const admin = createSupabaseAdmin();
+    await syncPendingOrdersForRaffle(admin, id);
+
     const { data: raffle, error: raffleError } = await admin
       .from("raffles")
       .select("id,status,winning_number,winner_order_id,drawn_at")
