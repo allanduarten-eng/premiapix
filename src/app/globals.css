@@ -877,6 +877,17 @@ img {
   flex-wrap: wrap;
 }
 
+.raffle-date-editor {
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) auto;
+  gap: 10px;
+  align-items: end;
+  padding: 10px;
+  background: #fbfcfe;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
 .winner-box {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto auto;
@@ -1118,6 +1129,7 @@ img {
   .form-grid,
   .image-upload-grid,
   .winner-box,
+  .raffle-date-editor,
   .paid-number-row {
     grid-template-columns: 1fr;
   }
@@ -1134,6 +1146,7 @@ img {
 
   .admin-actions .button,
   .winner-box .button,
+  .raffle-date-editor .button,
   .draw-actions .button,
   .paid-number-row .button {
     width: 100%;

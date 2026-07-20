@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import {
+  CalendarDays,
   Home,
   ImageUp,
   KeyRound,
@@ -12,6 +13,7 @@ import {
   Phone,
   PlusCircle,
   RefreshCw,
+  Save,
   ShieldCheck,
   Sparkles,
   TicketCheck,
@@ -74,6 +76,30 @@ function formatFileSize(bytes: number) {
 
 function fileNameWithoutExtension(name: string) {
   return name.replace(/\.[^/.]+$/, "") || "campanha";
+}
+
+function toDateTimeInputValue(value: string | null) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return localDate.toISOString().slice(0, 16);
+}
+
+function dateTimeInputToIso(value: string) {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
 async function imageToWebp(file: File) {
@@ -146,6 +172,8 @@ export function AdminPanel() {
   const [expandedRaffleId, setExpandedRaffleId] = useState<string | null>(null);
   const [loadingNumbersId, setLoadingNumbersId] = useState<string | null>(null);
   const [drawingRaffleId, setDrawingRaffleId] = useState<string | null>(null);
+  const [savingDrawDateId, setSavingDrawDateId] = useState<string | null>(null);
+  const [drawDateEdits, setDrawDateEdits] = useState<Record<string, string>>({});
   const [paidNumbersByRaffle, setPaidNumbersByRaffle] = useState<
     Record<string, PaidRaffleNumber[]>
   >({});
@@ -221,7 +249,13 @@ export function AdminPanel() {
       return;
     }
 
-    setRaffles((data ?? []) as Raffle[]);
+    const nextRaffles = (data ?? []) as Raffle[];
+    setRaffles(nextRaffles);
+    setDrawDateEdits(
+      Object.fromEntries(
+        nextRaffles.map((raffle) => [raffle.id, toDateTimeInputValue(raffle.draw_at)])
+      )
+    );
   }
 
   async function fetchPaidNumbers(raffle: Raffle) {
@@ -390,6 +424,47 @@ export function AdminPanel() {
     }
   }
 
+  async function saveRaffleDrawDate(raffle: Raffle) {
+    if (!session) {
+      setError("Entre antes de editar a data do sorteio.");
+      return;
+    }
+
+    const nextDrawAt = dateTimeInputToIso(drawDateEdits[raffle.id] ?? "");
+
+    if (!nextDrawAt) {
+      setError("Informe uma data valida para o sorteio.");
+      return;
+    }
+
+    setError("");
+    setMessage("");
+    setSavingDrawDateId(raffle.id);
+
+    const response = await fetch("/api/admin/raffles", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`
+      },
+      body: JSON.stringify({
+        id: raffle.id,
+        drawAt: nextDrawAt
+      })
+    });
+
+    const payload = (await response.json()) as { error?: string; success?: boolean };
+    setSavingDrawDateId(null);
+
+    if (!response.ok || !payload.success) {
+      setError(payload.error ?? "Nao foi possivel alterar a data do sorteio.");
+      return;
+    }
+
+    setMessage("Data do sorteio atualizada.");
+    await fetchAdminRaffles();
+  }
+
   async function sendMagicLink() {
     setError("");
     setMessage("");
@@ -497,7 +572,7 @@ export function AdminPanel() {
         imageUrl,
         pricePerNumber: Number(form.pricePerNumber),
         totalNumbers: Number(form.totalNumbers),
-        drawAt: form.drawAt || null,
+        drawAt: form.drawAt ? dateTimeInputToIso(form.drawAt) : null,
         status: form.status
       })
     });
@@ -921,6 +996,35 @@ export function AdminPanel() {
                           Excluir
                         </button>
                       </div>
+                    </div>
+
+                    <div className="raffle-date-editor">
+                      <div className="field compact">
+                        <label htmlFor={`draw-date-${raffle.id}`}>Data do sorteio</label>
+                        <div className="input-with-icon">
+                          <CalendarDays size={17} />
+                          <input
+                            id={`draw-date-${raffle.id}`}
+                            onChange={(event) =>
+                              setDrawDateEdits((current) => ({
+                                ...current,
+                                [raffle.id]: event.target.value
+                              }))
+                            }
+                            type="datetime-local"
+                            value={drawDateEdits[raffle.id] ?? ""}
+                          />
+                        </div>
+                      </div>
+                      <button
+                        className="button secondary"
+                        disabled={!isAdmin || savingDrawDateId === raffle.id}
+                        type="button"
+                        onClick={() => saveRaffleDrawDate(raffle)}
+                      >
+                        <Save size={17} />
+                        {savingDrawDateId === raffle.id ? "Salvando..." : "Salvar data"}
+                      </button>
                     </div>
 
                     {drawResult ? (

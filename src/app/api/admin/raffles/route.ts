@@ -16,6 +16,11 @@ type CreateRaffleBody = {
   status?: "draft" | "open";
 };
 
+type UpdateRaffleBody = {
+  id?: string;
+  drawAt?: string | null;
+};
+
 export async function POST(request: Request) {
   try {
     const token = getBearerToken(request);
@@ -93,6 +98,76 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ id: data.id }, { status: 201 });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Erro interno." },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const token = getBearerToken(request);
+
+    if (!token) {
+      return NextResponse.json({ error: "Login necessario." }, { status: 401 });
+    }
+
+    const userClient = createSupabaseForToken(token);
+    const {
+      data: { user },
+      error: userError
+    } = await userClient.auth.getUser();
+
+    if (userError || !user) {
+      return NextResponse.json({ error: "Sessao invalida." }, { status: 401 });
+    }
+
+    const body = (await request.json()) as UpdateRaffleBody;
+
+    if (!body.id) {
+      return NextResponse.json({ error: "Informe a campanha para editar." }, { status: 400 });
+    }
+
+    let drawAt: string | null = null;
+
+    if (body.drawAt) {
+      const parsedDate = new Date(body.drawAt);
+
+      if (Number.isNaN(parsedDate.getTime())) {
+        return NextResponse.json({ error: "Data do sorteio invalida." }, { status: 400 });
+      }
+
+      drawAt = parsedDate.toISOString();
+    }
+
+    const admin = createSupabaseAdmin();
+    const { data: adminRow, error: adminError } = await admin
+      .from("admins")
+      .select("user_id")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (adminError || !adminRow) {
+      return NextResponse.json(
+        { error: "Apenas administradores podem editar campanhas." },
+        { status: 403 }
+      );
+    }
+
+    const { data, error } = await admin
+      .from("raffles")
+      .update({ draw_at: drawAt })
+      .eq("id", body.id)
+      .select("id,draw_at")
+      .single();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true, raffle: data });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Erro interno." },
